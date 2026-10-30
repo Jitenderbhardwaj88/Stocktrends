@@ -35,7 +35,9 @@ def color_score(v):
 
 
 # ---------------- sidebar ----------------
-cfg = llm.load_config()
+CLOUD = llm.is_cloud()
+# One config per visitor session (never shared between visitors, never written to disk online)
+cfg = st.session_state.setdefault("llm_cfg", llm.load_config())
 with st.sidebar:
     st.header("Watchlist")
     wl = st.text_area("Tickers (comma separated)", "AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, JPM, XOM, LLY",
@@ -45,19 +47,31 @@ with st.sidebar:
     if st.button("Refresh data"):
         st.cache_data.clear()
     st.divider()
-    st.header("Gemma (Bionic API)")
-    cfg["base_url"] = st.text_input("Base URL", cfg["base_url"])
+    st.header("AI settings (optional)" if CLOUD else "Gemma (Bionic API)")
+    if CLOUD:
+        st.caption("Bring your own OpenAI-compatible API (https only). Your key is kept only for this "
+                   "browser session and is not saved, but it is sent to the address you enter, "
+                   "so use a key you can revoke.")
+    cfg["base_url"] = st.text_input("Base URL", cfg["base_url"],
+                                    placeholder="https://.../v1" if CLOUD else "")
     cfg["api_key"] = st.text_input("API key", cfg["api_key"], type="password")
     cfg["model"] = st.text_input("Model name", cfg["model"])
-    c1, c2 = st.columns(2)
-    if c1.button("Save"):
-        llm.save_config(cfg)
-        st.success("Saved")
-    if c2.button("Test"):
-        try:
-            st.success(", ".join(llm.list_models(cfg)) or "Connected (no model list)")
-        except Exception as e:
-            st.error(str(e)[:200])
+    if CLOUD:
+        if st.button("Test"):
+            try:
+                st.success(", ".join(llm.list_models(cfg)) or "Connected (no model list)")
+            except Exception as e:
+                st.error(str(e)[:200])
+    else:
+        c1, c2 = st.columns(2)
+        if c1.button("Save"):
+            llm.save_config(cfg)
+            st.success("Saved")
+        if c2.button("Test"):
+            try:
+                st.success(", ".join(llm.list_models(cfg)) or "Connected (no model list)")
+            except Exception as e:
+                st.error(str(e)[:200])
 
 st.title("Stock Trend Dashboard")
 st.caption("Daily data via Yahoo Finance (delayed). Scores are rule-based technical reads, not advice.")
@@ -147,8 +161,14 @@ with tab3:
 
 # ---------------- tab 4 ----------------
 with tab4:
-    st.write("Sends the computed numbers (not raw data) to your local Gemma model for a short written read.")
-    if st.button("Generate commentary"):
+    if CLOUD:
+        st.write("Optional. Sends the computed numbers (not raw data) to the AI service you set in the sidebar "
+                 "for a short written read. You need your own API key.")
+    else:
+        st.write("Sends the computed numbers (not raw data) to your local Gemma model for a short written read.")
+    if CLOUD and not (cfg["base_url"] and cfg["model"]):
+        st.info("Enter a Base URL, API key and model name in the sidebar to use this tab.")
+    elif st.button("Generate commentary"):
         top = sec.head(3).index.tolist()
         bot = sec.tail(3).index.tolist()
         lines = [f"Market regime: {reg['regime']} (score {reg['points']}/5), VIX {reg['vix']:.1f}, "
@@ -162,7 +182,7 @@ with tab4:
         with st.expander("Prompt sent"):
             st.code(prompt)
         try:
-            with st.spinner("Gemma is thinking..."):
+            with st.spinner("AI is thinking..."):
                 st.markdown(llm.ask(cfg, llm.SYSTEM, prompt))
         except Exception as e:
             st.error(f"LLM call failed: {str(e)[:300]}. Check Base URL / model in the sidebar and press Test.")
