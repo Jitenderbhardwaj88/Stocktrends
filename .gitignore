@@ -1,0 +1,6 @@
+.venv/
+.nenv/
+__pycache__/
+.env
+.streamlit/secrets.toml*.docx
+~$*
